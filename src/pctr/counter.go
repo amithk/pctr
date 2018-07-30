@@ -1,6 +1,9 @@
 package pctr
 
+import "encoding/binary"
+import "io"
 import "os"
+import "path/filepath"
 import "sync"
 
 // Persistent counter optimized for single process, multithreaded scenarios.
@@ -16,13 +19,13 @@ type PersistentCounter struct {
 	mutx      *sync.Mutex
 }
 
-func NewPersistentCounter(counterid, spath string) (*PersistentCounter, error) {
+func NewPersistentCounter(spath, counterid string) (*PersistentCounter, error) {
 	pc := &PersistentCounter{
 		counterid: counterid,
 		spath:     spath,
 		mutx:      &sync.Mutex{},
 	}
-	f, err := CreateNew(spath)
+	f, err := OpenFile(filepath.Join(spath, counterid))
 	if err != nil {
 		return nil, err
 	}
@@ -42,10 +45,15 @@ func NewPersistentCounter(counterid, spath string) (*PersistentCounter, error) {
 // IncrementValue and DeleteCounter APIs should be enough.
 func (pc *PersistentCounter) IncrementValue(incr uint64) (uint64, error) {
 	pc.mutx.Lock()
+	defer pc.mutx.Unlock()
 	newVal := pc.Value + incr
-	err := WriteFile(pc.f, newVal)
+	buf := serializeUint64(newVal)
+	err := WriteFile(pc.f, buf)
+	if err != nil {
+		return 0, err
+	}
+
 	pc.Value = newVal
-	pc.mutx.Unlock()
 	return newVal, err
 }
 
@@ -54,7 +62,17 @@ func (pc *PersistentCounter) DeleteCounter() error {
 }
 
 func (pc *PersistentCounter) GetValue() (uint64, error) {
-	return ReadFile(pc.f)
+	buf := make([]byte, binary.MaxVarintLen64)
+	err := ReadFile(pc.f, buf)
+	if err == io.EOF {
+		return 0, nil
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	return deserializeUint64(buf), nil
 }
 
 func (pc *PersistentCounter) IsDeleted() bool {
@@ -63,4 +81,15 @@ func (pc *PersistentCounter) IsDeleted() bool {
 
 // Persistent counter optimized for mutliprocess scenarios.
 type PersistentCounterMultiproc struct {
+}
+
+func serializeUint64(val uint64) []byte {
+	buf := make([]byte, binary.MaxVarintLen64)
+	binary.PutUvarint(buf, val)
+	return buf
+}
+
+func deserializeUint64(buf []byte) uint64 {
+	val, _ := binary.Uvarint(buf)
+	return val
 }
