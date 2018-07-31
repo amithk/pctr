@@ -39,6 +39,7 @@ func NewPersistentCounter(spath, counterid string) (*PersistentCounter, error) {
 	}
 
 	atomic.StoreUint64(&pc.curMax, val)
+	atomic.StoreUint64(&pc.curVal, val)
 	return pc, nil
 }
 

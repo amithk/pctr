@@ -32,3 +32,21 @@ func TestBasicIncrFunctionality(t *testing.T) {
 
 	fmt.Println(rval)
 }
+
+func TestBasicGetNextFunctionality(t *testing.T) {
+	os.RemoveAll("/tmp/1234")
+	pc, err := pctr.NewPersistentCounter("/tmp", "1234")
+	if err != nil {
+		t.Fatalf("error %v during NewPersistentCounter", err)
+	}
+
+	for i := 0; i < 70; i++ {
+		nv, err1 := pc.GetNext()
+		if err1 != nil {
+			t.Fatalf("Unexpected error %v during GetNext", err1)
+		}
+		if uint64(i+1) != nv {
+			t.Fatalf("Unexpected value %v, %v in GetNext", i, nv)
+		}
+	}
+}
