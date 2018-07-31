@@ -1,27 +1,45 @@
 package pctr
 
 import "encoding/binary"
+import "errors"
 import "io"
 import "os"
 import "path/filepath"
 import "sync"
 import "sync/atomic"
 
+var counterMap map[string]*PersistentCounter = make(map[string]*PersistentCounter)
+var counterMapLock *sync.Mutex = &sync.Mutex{}
+
+var errCounterNotInitialized error = errors.New("Counter is not initialized")
+
 // Persistent counter optimized for single process, multithreaded scenarios.
 // In other words, all accesses to the object of PersistentCounter are thread safe.
 // But if the same counter file is accessed by creating multiple objects of this
 // structure, the results can be inconsistent.
 type PersistentCounter struct {
-	counterid string
-	spath     string
-	curMax    uint64
-	curVal    uint64
-	deleted   bool
-	f         *os.File
-	mutx      *sync.Mutex
+	counterid   string // has to be unique
+	spath       string
+	curMax      uint64
+	curVal      uint64
+	deleted     bool
+	f           *os.File
+	mutx        *sync.Mutex
+	initialized bool
 }
 
 func NewPersistentCounter(spath, counterid string) (*PersistentCounter, error) {
+	if _, ok := counterMap[counterid]; ok {
+		return nil, errors.New("Attempt to create second object for same counter")
+	}
+
+	counterMapLock.Lock()
+	defer counterMapLock.Unlock()
+
+	if _, ok := counterMap[counterid]; ok {
+		return nil, errors.New("Attempt to create second object for same counter")
+	}
+
 	pc := &PersistentCounter{
 		counterid: counterid,
 		spath:     spath,
@@ -40,6 +58,8 @@ func NewPersistentCounter(spath, counterid string) (*PersistentCounter, error) {
 
 	atomic.StoreUint64(&pc.curMax, val)
 	atomic.StoreUint64(&pc.curVal, val)
+	counterMap[counterid] = pc
+	pc.initialized = true
 	return pc, nil
 }
 
@@ -47,6 +67,10 @@ func NewPersistentCounter(spath, counterid string) (*PersistentCounter, error) {
 // API unnecessary. For all practical purposes, NewPersistentCounter,
 // IncrementValue and DeleteCounter APIs should be enough.
 func (pc *PersistentCounter) IncrementValue(incr uint64) (uint64, error) {
+	if !pc.initialized {
+		return 0, errCounterNotInitialized
+	}
+
 	pc.mutx.Lock()
 	defer pc.mutx.Unlock()
 	lm := atomic.LoadUint64(&pc.curMax)
@@ -66,6 +90,10 @@ func (pc *PersistentCounter) DeleteCounter() error {
 }
 
 func (pc *PersistentCounter) GetNext() (uint64, error) {
+	if !pc.initialized {
+		return 0, errCounterNotInitialized
+	}
+
 	for {
 		lv := atomic.LoadUint64(&pc.curVal)
 		lm := atomic.LoadUint64(&pc.curMax)

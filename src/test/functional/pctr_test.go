@@ -34,8 +34,8 @@ func TestBasicIncrFunctionality(t *testing.T) {
 }
 
 func TestBasicGetNextFunctionality(t *testing.T) {
-	os.RemoveAll("/tmp/1234")
-	pc, err := pctr.NewPersistentCounter("/tmp", "1234")
+	os.RemoveAll("/tmp/12345")
+	pc, err := pctr.NewPersistentCounter("/tmp", "12345")
 	if err != nil {
 		t.Fatalf("error %v during NewPersistentCounter", err)
 	}
