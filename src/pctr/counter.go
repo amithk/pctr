@@ -11,7 +11,8 @@ import "sync/atomic"
 var counterMap map[string]*PersistentCounter = make(map[string]*PersistentCounter)
 var counterMapLock *sync.Mutex = &sync.Mutex{}
 
-var errCounterNotInitialized error = errors.New("Counter is not initialized")
+var ErrCounterNotInitialized error = errors.New("Counter is not initialized")
+var ErrCounterDeleted error = errors.New("Access deleted counter error")
 
 // Persistent counter optimized for single process, multithreaded scenarios.
 // In other words, all accesses to the object of PersistentCounter are thread safe.
@@ -67,8 +68,13 @@ func NewPersistentCounter(spath, counterid string) (*PersistentCounter, error) {
 // API unnecessary. For all practical purposes, NewPersistentCounter,
 // IncrementValue and DeleteCounter APIs should be enough.
 func (pc *PersistentCounter) IncrementValue(incr uint64) (uint64, error) {
+	if pc.deleted {
+		// This error is primarily used as a circuit breaker.
+		return 0, ErrCounterDeleted
+	}
+
 	if !pc.initialized {
-		return 0, errCounterNotInitialized
+		return 0, ErrCounterNotInitialized
 	}
 
 	pc.mutx.Lock()
@@ -86,12 +92,20 @@ func (pc *PersistentCounter) IncrementValue(incr uint64) (uint64, error) {
 }
 
 func (pc *PersistentCounter) DeleteCounter() error {
-	return nil
+	pc.deleted = true
+	pc.mutx.Lock()
+	defer pc.mutx.Unlock()
+	return DeleteFile(filepath.Join(pc.spath, pc.counterid))
 }
 
 func (pc *PersistentCounter) GetNext() (uint64, error) {
+	if pc.deleted {
+		// This error is primarily used as a circuit breaker.
+		return 0, ErrCounterDeleted
+	}
+
 	if !pc.initialized {
-		return 0, errCounterNotInitialized
+		return 0, ErrCounterNotInitialized
 	}
 
 	for {
@@ -128,14 +142,6 @@ func (pc *PersistentCounter) GetValue() (uint64, error) {
 	}
 
 	return deserializeUint64(buf), nil
-}
-
-func (pc *PersistentCounter) IsDeleted() bool {
-	return false
-}
-
-// Persistent counter optimized for mutliprocess scenarios.
-type PersistentCounterMultiproc struct {
 }
 
 func serializeUint64(val uint64) []byte {

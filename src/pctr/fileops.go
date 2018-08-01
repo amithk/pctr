@@ -28,7 +28,7 @@ func WriteFile(f *os.File, buf []byte) error {
 
 // File must be closed before DeleteFile is called on it.
 func DeleteFile(fpath string) error {
-	return nil
+	return os.RemoveAll(fpath)
 }
 
 func CloseFile(f *os.File) error {
